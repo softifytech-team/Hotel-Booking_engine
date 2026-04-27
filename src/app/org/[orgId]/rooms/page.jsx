@@ -12,7 +12,7 @@ import { useRouter, useParams } from "next/navigation";
 export default function RoomsPage() {
   const router = useRouter();
   const { orgId } = useParams();
-  const { orgHotels, orgRooms, addRoom, selectedHotelId, setSelectedHotelId, loading } = useAuth();
+  const { orgHotels, orgRooms, addRoom, uploadImages, deleteUploadedImages, selectedHotelId, setSelectedHotelId, loading, activeOrg } = useAuth();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -25,6 +25,7 @@ export default function RoomsPage() {
     floor: "",
     features: "",
     image: "",
+    imageFile: null,
   });
 
   // Resolve hotel context from selectedHotelId
@@ -46,8 +47,7 @@ export default function RoomsPage() {
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
-      const url = URL.createObjectURL(file);
-      setFormData((prev) => ({ ...prev, image: url }));
+      setFormData((prev) => ({ ...prev, image: URL.createObjectURL(file), imageFile: file }));
     }
   };
 
@@ -55,10 +55,24 @@ export default function RoomsPage() {
     e.preventDefault();
     if (!formData.roomNumber || !formData.price || !selectedHotelId) return;
     setSubmitting(true);
-    await addRoom({ ...formData, hotelId: selectedHotelId });
+    let image = null;
+    let uploadedPublicIds = [];
+    if (formData.imageFile) {
+      const orgSlug = activeOrg?.name?.toLowerCase().replace(/\s+/g, "-") || "general";
+      const { urls, publicIds } = await uploadImages([formData.imageFile], `hotel-saas/${orgSlug}/rooms`);
+      image = urls[0];
+      uploadedPublicIds = publicIds;
+    }
+    try {
+      await addRoom({ ...formData, image, hotelId: selectedHotelId, orgId });
+    } catch {
+      await deleteUploadedImages(uploadedPublicIds);
+      setSubmitting(false);
+      return;
+    }
     setSubmitting(false);
     setIsModalOpen(false);
-    setFormData({ roomNumber: "", type: "Standard", price: "", maxGuests: 2, floor: "", features: "", image: "" });
+    setFormData({ roomNumber: "", type: "Standard", price: "", maxGuests: 2, floor: "", features: "", image: "", imageFile: null });
   };
 
   const isLoading = loading.rooms;
@@ -160,7 +174,7 @@ export default function RoomsPage() {
                   <TableHead className="py-4 pl-6 text-[11px] font-black uppercase tracking-widest">Room</TableHead>
                   <TableHead className="text-[11px] font-black uppercase tracking-widest">Type</TableHead>
                   <TableHead className="text-[11px] font-black uppercase tracking-widest">Capacity</TableHead>
-                  <TableHead className="text-[11px] font-black uppercase tracking-widest">Rate / Night</TableHead>
+                  <TableHead className="text-[11px] font-black uppercase tracking-widest">Price</TableHead>
                   <TableHead className="text-[11px] font-black uppercase tracking-widest">Status</TableHead>
                   <TableHead className="text-right pr-6"></TableHead>
                 </TableRow>

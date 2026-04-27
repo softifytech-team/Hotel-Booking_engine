@@ -8,18 +8,19 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { ActionMenu } from "@/components/ui/ActionMenu";
-import { Search, Plus, Filter, BedDouble, ArrowLeft } from "lucide-react";
+import { Search, Plus, Filter, BedDouble, ArrowLeft, Loader2 } from "lucide-react";
 
 export default function PlatformRoomsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { hotels, rooms, organizations, addRoom } = useAuth();
+  const { hotels, rooms, organizations, addRoom, uploadImages, deleteUploadedImages } = useAuth();
 
   const hotelIdFilter = searchParams.get("hotelId");
-  const hotelContext = hotels.find(h => h.id === hotelIdFilter);
-  const filteredRooms = hotelIdFilter ? rooms.filter(r => r.hotelId === hotelIdFilter) : rooms;
+  const hotelContext = hotels.find(h => String(h.id) === String(hotelIdFilter));
+  const filteredRooms = hotelIdFilter ? rooms.filter(r => String(r.hotelId) === String(hotelIdFilter)) : rooms;
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     hotelId: hotels?.[0]?.id || "",
     roomNumber: "",
@@ -28,25 +29,40 @@ export default function PlatformRoomsPage() {
     maxGuests: 2,
     floor: "1",
     features: "",
-    image: ""
+    image: "",
+    imageFile: null,
   });
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
-      const url = URL.createObjectURL(file);
-      setFormData(prev => ({ ...prev, image: url }));
+      setFormData(prev => ({ ...prev, image: URL.createObjectURL(file), imageFile: file }));
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.roomNumber || !formData.price || !formData.hotelId) return;
+    setSubmitting(true);
+    let image = null;
+    let uploadedPublicIds = [];
+    if (formData.imageFile) {
+      const hotel = hotels.find(h => String(h.id) === String(formData.hotelId));
+      const org = organizations.find(o => String(o.id) === String(hotel?.orgId));
+      const orgSlug = org?.name?.toLowerCase().replace(/\s+/g, "-") || "general";
+      const { urls, publicIds } = await uploadImages([formData.imageFile], `hotel-saas/${orgSlug}/rooms`);
+      image = urls[0];
+      uploadedPublicIds = publicIds;
+    }
     const hotel = hotels.find(h => h.id === formData.hotelId);
-    await addRoom({
-      ...formData,
-      orgId: hotel?.orgId || ""
-    });
+    try {
+      await addRoom({ ...formData, image, orgId: hotel?.orgId || "" });
+    } catch {
+      await deleteUploadedImages(uploadedPublicIds);
+      setSubmitting(false);
+      return;
+    }
+    setSubmitting(false);
     setIsModalOpen(false);
     setFormData({
       hotelId: hotels?.[0]?.id || "",
@@ -56,7 +72,8 @@ export default function PlatformRoomsPage() {
       maxGuests: 2,
       floor: "1",
       features: "",
-      image: ""
+      image: "",
+      imageFile: null,
     });
   };
 
@@ -270,7 +287,10 @@ export default function PlatformRoomsPage() {
           </div>
           <div className="pt-6 border-t border-slate-100 flex justify-end gap-3">
             <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-2.5 text-sm font-bold text-slate-400">Cancel</button>
-            <button type="submit" className="px-10 py-3 text-sm font-black text-white bg-indigo-600 hover:bg-indigo-700 rounded-2xl shadow-xl shadow-indigo-500/20 active:scale-95 transition-all">ADD UNIT</button>
+            <button type="submit" disabled={submitting} className="px-10 py-3 text-sm font-black text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 rounded-2xl shadow-xl shadow-indigo-500/20 active:scale-95 transition-all flex items-center gap-2">
+              {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+              {submitting ? "Uploading..." : "ADD UNIT"}
+            </button>
           </div>
         </form>
       </Modal>

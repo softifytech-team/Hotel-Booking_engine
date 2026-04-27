@@ -12,7 +12,7 @@ import { useRouter } from "next/navigation";
 
 export default function OrganizationsPage() {
   const router = useRouter();
-  const { role, ROLES, organizations, createOrganization, switchWorkspace, activeOrgId, setActiveOrgId } = useAuth();
+  const { role, ROLES, organizations, createOrganization, uploadImages, switchWorkspace, activeOrgId, setActiveOrgId } = useAuth();
 
   // Reset activeOrgId when returning to platform organizations view
   React.useEffect(() => {
@@ -23,14 +23,15 @@ export default function OrganizationsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [formData, setFormData] = useState({
-    name: "", orgCode: "", website: "", ownerName: "", ownerEmail: "", phone: "", address: "", ownerPassword: "", logoUrl: "", bannerImages: []
+    name: "", orgCode: "", website: "", ownerName: "", ownerEmail: "", phone: "", address: "", ownerPassword: "",
+    logoUrl: "", logoFile: null,
+    bannerImages: [], bannerFiles: [],
   });
 
   const handleLogoUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
-      const url = URL.createObjectURL(file);
-      setFormData(prev => ({ ...prev, logoUrl: url }));
+      setFormData(prev => ({ ...prev, logoUrl: URL.createObjectURL(file), logoFile: file }));
     }
   };
 
@@ -38,23 +39,51 @@ export default function OrganizationsPage() {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
     const urls = files.map((f) => URL.createObjectURL(f));
-    setFormData(prev => ({ ...prev, bannerImages: [...prev.bannerImages, ...urls] }));
+    setFormData(prev => ({
+      ...prev,
+      bannerImages: [...prev.bannerImages, ...urls],
+      bannerFiles: [...prev.bannerFiles, ...files],
+    }));
     e.target.value = "";
   };
 
   const removeBanner = (index) => {
-    setFormData(prev => ({ ...prev, bannerImages: prev.bannerImages.filter((_, i) => i !== index) }));
+    setFormData(prev => ({
+      ...prev,
+      bannerImages: prev.bannerImages.filter((_, i) => i !== index),
+      bannerFiles: prev.bannerFiles.filter((_, i) => i !== index),
+    }));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
     setFormError("");
-    const result = await createOrganization(formData);
+
+    let logoUrl = null;
+    let bannerImages = [];
+
+    try {
+      const orgSlug = formData.name.toLowerCase().replace(/\s+/g, "-");
+      if (formData.logoFile) {
+        const { urls } = await uploadImages([formData.logoFile], `hotel-saas/${orgSlug}/logos`);
+        logoUrl = urls[0];
+      }
+      if (formData.bannerFiles.length > 0) {
+        const { urls } = await uploadImages(formData.bannerFiles, `hotel-saas/${orgSlug}/banners`);
+        bannerImages = urls;
+      }
+    } catch {
+      setFormError("Image upload failed. Please check your connection and try again.");
+      setSubmitting(false);
+      return;
+    }
+
+    const result = await createOrganization({ ...formData, logoUrl, bannerImages });
     setSubmitting(false);
     if (result?.success) {
       setIsModalOpen(false);
-      setFormData({ name: "", orgCode: "", website: "", ownerName: "", ownerEmail: "", phone: "", address: "", ownerPassword: "", logoUrl: "", bannerImages: [] });
+      setFormData({ name: "", orgCode: "", website: "", ownerName: "", ownerEmail: "", phone: "", address: "", ownerPassword: "", logoUrl: "", logoFile: null, bannerImages: [], bannerFiles: [] });
       setFormError("");
     } else {
       setFormError(result?.error || "Something went wrong. Please try again.");

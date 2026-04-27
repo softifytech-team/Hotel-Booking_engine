@@ -11,10 +11,11 @@ import { useRouter, useParams } from "next/navigation";
 export default function HotelsPage() {
   const router = useRouter();
   const { orgId } = useParams();
-  const { orgHotels, addHotel, activeOrg, setSelectedHotelId, loading, role, ROLES } = useAuth();
+  const { orgHotels, addHotel, uploadImages, deleteUploadedImages, activeOrg, setSelectedHotelId, loading, role, ROLES } = useAuth();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [formErrors, setFormErrors] = useState({});
   const [formData, setFormData] = useState({
     name: "",
     city: "",
@@ -25,6 +26,7 @@ export default function HotelsPage() {
     address: "",
     description: "",
     image: "",
+    imageFile: null,
   });
 
   const handleBackToPlatform = () => {
@@ -35,19 +37,38 @@ export default function HotelsPage() {
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
-      const url = URL.createObjectURL(file);
-      setFormData((prev) => ({ ...prev, image: url }));
+      setFormData((prev) => ({ ...prev, image: URL.createObjectURL(file), imageFile: file }));
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const errors = {};
+    if (!formData.phone) errors.phone = "Phone number is required";
+    if (!formData.email) errors.email = "Email is required";
+    if (!formData.address) errors.address = "Address is required";
+    if (Object.keys(errors).length > 0) { setFormErrors(errors); return; }
+    setFormErrors({});
     if (!formData.name || !formData.city || !formData.state) return;
     setSubmitting(true);
-    await addHotel({ ...formData, orgId: parseInt(orgId) });
+    let image = null;
+    let uploadedPublicIds = [];
+    if (formData.imageFile) {
+      const orgSlug = activeOrg?.name?.toLowerCase().replace(/\s+/g, "-") || "general";
+      const { urls, publicIds } = await uploadImages([formData.imageFile], `hotel-saas/${orgSlug}/hotels`);
+      image = urls[0];
+      uploadedPublicIds = publicIds;
+    }
+    try {
+      await addHotel({ ...formData, image, orgId: parseInt(orgId) });
+    } catch {
+      await deleteUploadedImages(uploadedPublicIds);
+      setSubmitting(false);
+      return;
+    }
     setSubmitting(false);
     setIsModalOpen(false);
-    setFormData({ name: "", city: "", state: "", location: "", phone: "", email: "", address: "", description: "", image: "" });
+    setFormData({ name: "", city: "", state: "", location: "", phone: "", email: "", address: "", description: "", image: "", imageFile: null });
   };
 
   const handleViewRooms = (hotelId) => {
@@ -185,7 +206,7 @@ export default function HotelsPage() {
       {/* Add Hotel Modal */}
       <Modal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={() => { setIsModalOpen(false); setFormErrors({}); }}
         title="Register Hotel"
         description="Add a new property to this organization's portfolio."
       >
@@ -232,41 +253,44 @@ export default function HotelsPage() {
             </div>
             <div>
               <label className="block text-[11px] font-black tracking-widest text-slate-500 mb-1.5 uppercase">
-                Phone
+                Phone *
               </label>
               <input
                 type="tel"
                 value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                onChange={(e) => { setFormData({ ...formData, phone: e.target.value }); setFormErrors(p => ({...p, phone: ""})); }}
                 placeholder="+1 234 567 890"
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 outline-none transition-all"
+                className={`w-full px-4 py-3 bg-slate-50 border rounded-2xl text-sm font-bold focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 outline-none transition-all ${formErrors.phone ? "border-rose-400" : "border-slate-200"}`}
               />
+              {formErrors.phone && <p className="text-rose-500 text-[11px] font-bold mt-1">{formErrors.phone}</p>}
             </div>
             <div>
               <label className="block text-[11px] font-black tracking-widest text-slate-500 mb-1.5 uppercase">
-                Email
+                Email *
               </label>
               <input
                 type="email"
                 value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                onChange={(e) => { setFormData({ ...formData, email: e.target.value }); setFormErrors(p => ({...p, email: ""})); }}
                 placeholder="hotel@example.com"
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 outline-none transition-all"
+                className={`w-full px-4 py-3 bg-slate-50 border rounded-2xl text-sm font-bold focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 outline-none transition-all ${formErrors.email ? "border-rose-400" : "border-slate-200"}`}
               />
+              {formErrors.email && <p className="text-rose-500 text-[11px] font-bold mt-1">{formErrors.email}</p>}
             </div>
           </div>
 
           <div>
             <label className="block text-[11px] font-black tracking-widest text-slate-500 mb-1.5 uppercase">
-              Address
+              Address *
             </label>
             <input
               type="text"
               value={formData.address}
-              onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+              onChange={(e) => { setFormData({ ...formData, address: e.target.value }); setFormErrors(p => ({...p, address: ""})); }}
               placeholder="123 Luxury Ave, Suite 100"
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 outline-none transition-all"
+              className={`w-full px-4 py-3 bg-slate-50 border rounded-2xl text-sm font-bold focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 outline-none transition-all ${formErrors.address ? "border-rose-400" : "border-slate-200"}`}
             />
+            {formErrors.address && <p className="text-rose-500 text-[11px] font-bold mt-1">{formErrors.address}</p>}
           </div>
 
           <div>

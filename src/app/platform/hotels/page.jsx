@@ -7,12 +7,14 @@ import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { ActionMenu } from "@/components/ui/ActionMenu";
-import { MapPin, Plus, Star, Home, ArrowRight, Building2 } from "lucide-react";
+import { MapPin, Plus, Star, Home, Building2, Loader2 } from "lucide-react";
 
 export default function PlatformHotelsPage() {
   const router = useRouter();
-  const { hotels, organizations, addHotel } = useAuth();
+  const { hotels, organizations, addHotel, uploadImages, deleteUploadedImages } = useAuth();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [formErrors, setFormErrors] = useState({});
   const [formData, setFormData] = useState({
     name: "",
     orgId: organizations?.[0]?.id || "",
@@ -23,21 +25,44 @@ export default function PlatformHotelsPage() {
     email: "",
     address: "",
     description: "",
-    image: ""
+    image: "",
+    imageFile: null,
   });
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
-      const url = URL.createObjectURL(file);
-      setFormData(prev => ({ ...prev, image: url }));
+      setFormData(prev => ({ ...prev, image: URL.createObjectURL(file), imageFile: file }));
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const errors = {};
+    if (!formData.phone) errors.phone = "Phone number is required";
+    if (!formData.email) errors.email = "Email is required";
+    if (!formData.address) errors.address = "Address is required";
+    if (Object.keys(errors).length > 0) { setFormErrors(errors); return; }
+    setFormErrors({});
     if (!formData.name || !formData.city || !formData.state || !formData.orgId) return;
-    await addHotel(formData);
+    setSubmitting(true);
+    let image = null;
+    let uploadedPublicIds = [];
+    if (formData.imageFile) {
+      const org = organizations.find(o => String(o.id) === String(formData.orgId));
+      const orgSlug = org?.name?.toLowerCase().replace(/\s+/g, "-") || "general";
+      const { urls, publicIds } = await uploadImages([formData.imageFile], `hotel-saas/${orgSlug}/hotels`);
+      image = urls[0];
+      uploadedPublicIds = publicIds;
+    }
+    try {
+      await addHotel({ ...formData, image });
+    } catch {
+      await deleteUploadedImages(uploadedPublicIds);
+      setSubmitting(false);
+      return;
+    }
+    setSubmitting(false);
     setIsModalOpen(false);
     setFormData({
       name: "",
@@ -49,7 +74,8 @@ export default function PlatformHotelsPage() {
       email: "",
       address: "",
       description: "",
-      image: ""
+      image: "",
+      imageFile: null,
     });
   };
 
@@ -147,7 +173,7 @@ export default function PlatformHotelsPage() {
 
       <Modal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={() => { setIsModalOpen(false); setFormErrors({}); }}
         title="Add Platform Hotel"
         description="Register a hotel property under one of your tenant organizations."
       >
@@ -213,35 +239,38 @@ export default function PlatformHotelsPage() {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-[11px] font-black tracking-widest text-slate-500 mb-1.5 uppercase">Contact Phone</label>
+              <label className="block text-[11px] font-black tracking-widest text-slate-500 mb-1.5 uppercase">Contact Phone *</label>
               <input
                 type="tel"
                 value={formData.phone}
-                onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                onChange={(e) => { setFormData({...formData, phone: e.target.value}); setFormErrors(p => ({...p, phone: ""})); }}
                 placeholder="e.g. +1 234 567 890"
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:border-indigo-500 transition-all"
+                className={`w-full px-4 py-3 bg-slate-50 border rounded-2xl text-sm font-bold focus:border-indigo-500 transition-all ${formErrors.phone ? "border-rose-400" : "border-slate-200"}`}
               />
+              {formErrors.phone && <p className="text-rose-500 text-[11px] font-bold mt-1">{formErrors.phone}</p>}
             </div>
             <div>
-              <label className="block text-[11px] font-black tracking-widest text-slate-500 mb-1.5 uppercase">Contact Email</label>
+              <label className="block text-[11px] font-black tracking-widest text-slate-500 mb-1.5 uppercase">Contact Email *</label>
               <input
                 type="email"
                 value={formData.email}
-                onChange={(e) => setFormData({...formData, email: e.target.value})}
+                onChange={(e) => { setFormData({...formData, email: e.target.value}); setFormErrors(p => ({...p, email: ""})); }}
                 placeholder="hotel@example.com"
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:border-indigo-500 transition-all"
+                className={`w-full px-4 py-3 bg-slate-50 border rounded-2xl text-sm font-bold focus:border-indigo-500 transition-all ${formErrors.email ? "border-rose-400" : "border-slate-200"}`}
               />
+              {formErrors.email && <p className="text-rose-500 text-[11px] font-bold mt-1">{formErrors.email}</p>}
             </div>
           </div>
           <div>
-            <label className="block text-[11px] font-black tracking-widest text-slate-500 mb-1.5 uppercase">Address</label>
+            <label className="block text-[11px] font-black tracking-widest text-slate-500 mb-1.5 uppercase">Address *</label>
             <input
               type="text"
               value={formData.address}
-              onChange={(e) => setFormData({...formData, address: e.target.value})}
+              onChange={(e) => { setFormData({...formData, address: e.target.value}); setFormErrors(p => ({...p, address: ""})); }}
               placeholder="e.g. 123 Paradise Lane"
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:border-indigo-500 transition-all"
+              className={`w-full px-4 py-3 bg-slate-50 border rounded-2xl text-sm font-bold focus:border-indigo-500 transition-all ${formErrors.address ? "border-rose-400" : "border-slate-200"}`}
             />
+            {formErrors.address && <p className="text-rose-500 text-[11px] font-bold mt-1">{formErrors.address}</p>}
           </div>
           <div>
             <label className="block text-[11px] font-black tracking-widest text-slate-500 mb-1.5 uppercase">Property Image</label>
@@ -267,7 +296,10 @@ export default function PlatformHotelsPage() {
           </div>
           <div className="pt-6 border-t border-slate-100 flex justify-end gap-3">
             <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-2.5 text-sm font-bold text-slate-400">Cancel</button>
-            <button type="submit" className="px-10 py-3 text-sm font-black text-white bg-indigo-600 hover:bg-indigo-700 rounded-2xl shadow-xl shadow-indigo-500/20 active:scale-95 transition-all">REGISTER HOTEL</button>
+            <button type="submit" disabled={submitting} className="px-10 py-3 text-sm font-black text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 rounded-2xl shadow-xl shadow-indigo-500/20 active:scale-95 transition-all flex items-center gap-2">
+              {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+              {submitting ? "Uploading..." : "REGISTER HOTEL"}
+            </button>
           </div>
         </form>
       </Modal>

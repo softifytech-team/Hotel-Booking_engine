@@ -54,8 +54,9 @@ export const AuthProvider = ({ children }) => {
 
   const apiCall = async (endpoint, options = {}) => {
     const currentToken = token || (typeof window !== "undefined" ? localStorage.getItem("auth_token") : null);
+    const isFormData = options.body instanceof FormData;
     const headers = {
-      "Content-Type": "application/json",
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...(currentToken ? { Authorization: `Bearer ${currentToken}` } : {}),
     };
     try {
@@ -263,6 +264,26 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // ─── Image Upload ─────────────────────────────────────────
+
+  const uploadImages = async (files, folder = "hotel-saas") => {
+    const formData = new FormData();
+    files.forEach((file) => formData.append("images", file));
+    formData.append("folder", folder);
+    const { data } = await apiCall("/images/upload", { method: "POST", body: formData });
+    return { urls: data.urls, publicIds: data.details.map((d) => d.public_id) };
+  };
+
+  const deleteUploadedImages = async (publicIds = []) => {
+    try {
+      await Promise.all(
+        publicIds.map((id) =>
+          apiCall("/images", { method: "DELETE", body: JSON.stringify({ public_id: id }) })
+        )
+      );
+    } catch { /* best-effort cleanup — ignore errors */ }
+  };
+
   // ─── Auth ─────────────────────────────────────────────────
 
   const login = async (email, password) => {
@@ -377,6 +398,7 @@ export const AuthProvider = ({ children }) => {
         : roomData.features
           ? roomData.features.split(",").map((f) => f.trim()).filter(Boolean)
           : [];
+      const currentRole = role || JSON.parse(localStorage.getItem("auth_user") || "{}").role;
       await apiCall("/createRoom", {
         method: "POST",
         body: JSON.stringify({
@@ -388,6 +410,7 @@ export const AuthProvider = ({ children }) => {
           max_guests: parseInt(roomData.maxGuests) || 2,
           amenities,
           image_urls: roomData.image ? [roomData.image] : [],
+          ...(currentRole === ROLES.SUPER_ADMIN && roomData.orgId ? { organization_id: roomData.orgId } : {}),
         }),
       });
       addToast(`Room ${roomData.roomNumber} added!`);
@@ -537,6 +560,8 @@ export const AuthProvider = ({ children }) => {
         orgRooms,
         orgPayments,
         orgTransactions,
+        uploadImages,
+        deleteUploadedImages,
         createOrganization,
         addHotel,
         deleteHotel,
